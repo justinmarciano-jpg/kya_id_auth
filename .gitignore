@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+.kya-credentials
+*.log
+.DS_Store
+kya-keys.json
