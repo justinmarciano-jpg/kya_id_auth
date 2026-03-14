@@ -20,5 +20,7 @@ export function loadConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
         ? process.env.KYA_ALLOWED_ORIGINS.split(',').map((o) => o.trim())
         : null),
     trustProxy: overrides.trustProxy ?? process.env.KYA_TRUST_PROXY === 'true',
+    registrationSecret:
+      overrides.registrationSecret ?? process.env.KYA_REGISTRATION_SECRET ?? undefined,
   };
 }

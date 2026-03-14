@@ -127,6 +127,7 @@ export interface ServerConfig {
   rateLimitGeneral: number;
   allowedOrigins: string[] | null;
   trustProxy: boolean;
+  registrationSecret?: string;
 }
 
 export interface Deps {

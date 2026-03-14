@@ -5,6 +5,8 @@ import { createApp } from '../app.js';
 const DATABASE_URL =
   process.env.TEST_DATABASE_URL || 'postgres://kya:kya_dev@localhost:5432/kya_id_auth_test';
 
+const REGISTRATION_SECRET = 'test-secret-for-integration';
+
 let server: Server;
 let port: number;
 let shutdown: (signal?: string) => Promise<void>;
@@ -29,14 +31,24 @@ async function api(
   return { status: res.status, json };
 }
 
+/** Register an agent with the correct registration secret. */
+async function registerAgent(data: Record<string, unknown>) {
+  return api('POST', '/v1/agents/register', data, {
+    'X-Registration-Secret': REGISTRATION_SECRET,
+  });
+}
+
 beforeAll(async () => {
-  const app = createApp({ port: 0, databaseUrl: DATABASE_URL });
+  const app = createApp({
+    port: 0,
+    databaseUrl: DATABASE_URL,
+    registrationSecret: REGISTRATION_SECRET,
+  });
   const result = await app.start();
   server = result.server;
   port = result.port;
   shutdown = app.shutdown;
 
-  // Clean tables for a fresh test run
   await app.pool.query('DELETE FROM logs');
   await app.pool.query('DELETE FROM agents');
 });
@@ -68,8 +80,31 @@ describe('JWKS', () => {
 });
 
 describe('Registration', () => {
-  it('POST /v1/agents/register creates an agent and returns JWT', async () => {
+  it('rejects registration without secret', async () => {
     const { status, json } = await api('POST', '/v1/agents/register', {
+      agent_name: 'no-secret-agent',
+      creator_identity: 'test@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion'],
+      prohibited: [],
+    });
+    expect(status).toBe(401);
+    expect(json.error).toContain('registration secret');
+  });
+
+  it('rejects registration with wrong secret', async () => {
+    const { status } = await api('POST', '/v1/agents/register', {
+      agent_name: 'wrong-secret-agent',
+      creator_identity: 'test@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion'],
+      prohibited: [],
+    }, { 'X-Registration-Secret': 'wrong-secret' });
+    expect(status).toBe(401);
+  });
+
+  it('POST /v1/agents/register creates an agent with correct secret', async () => {
+    const { status, json } = await registerAgent({
       agent_name: 'test-agent',
       creator_identity: 'test@example.com',
       model_version: 'claude-sonnet-4',
@@ -79,16 +114,15 @@ describe('Registration', () => {
     });
 
     expect(status).toBe(201);
-    expect(json.agent_id).toMatch(/^agt_[a-f0-9]{8}$/);
+    expect(json.agent_id).toMatch(/^agt_[a-f0-9]{32}$/);
     expect(json.token).toBeDefined();
-    // JWT has 3 dot-separated parts
     expect(json.token.split('.').length).toBe(3);
     expect(json.agent_name).toBe('test-agent');
     expect(json.created_at).toBeDefined();
   });
 
   it('JWT contains correct claims', async () => {
-    const { json } = await api('POST', '/v1/agents/register', {
+    const { json } = await registerAgent({
       agent_name: 'claims-agent',
       creator_identity: 'claims@example.com',
       model_version: 'gpt-4o',
@@ -97,7 +131,6 @@ describe('Registration', () => {
       metadata: { env: 'test' },
     });
 
-    // Decode the JWT payload (middle part)
     const payload = JSON.parse(Buffer.from(json.token.split('.')[1], 'base64url').toString());
     expect(payload.sub).toBe(json.agent_id);
     expect(payload.agent_name).toBe('claims-agent');
@@ -110,19 +143,28 @@ describe('Registration', () => {
     expect(payload.iat).toBeDefined();
   });
 
-  it('rejects invalid body', async () => {
-    const { status, json } = await api('POST', '/v1/agents/register', {
-      agent_name: 'x',
+  it('rejects metadata exceeding 4KB', async () => {
+    const { status, json } = await registerAgent({
+      agent_name: 'big-metadata-agent',
+      creator_identity: 'test@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion'],
+      prohibited: [],
+      metadata: { big: 'x'.repeat(5000) },
     });
+    expect(status).toBe(400);
+    expect(json.details).toContain('metadata must not exceed 4KB when serialized');
+  });
 
+  it('rejects invalid body', async () => {
+    const { status, json } = await registerAgent({ agent_name: 'x' });
     expect(status).toBe(400);
     expect(json.error).toBe('Validation failed');
     expect(json.details.length).toBeGreaterThan(0);
   });
 
   it('rejects empty body', async () => {
-    const { status, json } = await api('POST', '/v1/agents/register', {});
-
+    const { status, json } = await registerAgent({});
     expect(status).toBe(400);
     expect(json.details.length).toBeGreaterThan(0);
   });
@@ -133,7 +175,7 @@ describe('Agent Lookup', () => {
   let token: string;
 
   beforeAll(async () => {
-    const { json } = await api('POST', '/v1/agents/register', {
+    const { json } = await registerAgent({
       agent_name: 'lookup-agent',
       creator_identity: 'lookup@example.com',
       model_version: 'gpt-4o',
@@ -144,7 +186,7 @@ describe('Agent Lookup', () => {
     token = json.token;
   });
 
-  it('GET /v1/agents/:id returns agent profile', async () => {
+  it('GET /v1/agents/:id returns own agent profile', async () => {
     const { status, json } = await api('GET', `/v1/agents/${agentId}`, undefined, {
       Authorization: `Bearer ${token}`,
     });
@@ -155,8 +197,23 @@ describe('Agent Lookup', () => {
     expect(json.capabilities).toEqual(['read:email']);
     expect(json.prohibited).toEqual(['write:database']);
     expect(json.revoked_at).toBeNull();
-    // Should not expose token
     expect(json.token).toBeUndefined();
+  });
+
+  it('returns 403 when looking up a different agent', async () => {
+    const { json: other } = await registerAgent({
+      agent_name: 'other-lookup-agent',
+      creator_identity: 'other@example.com',
+      model_version: 'gpt-4o',
+      capabilities: ['read:files'],
+      prohibited: [],
+    });
+
+    // Try to look up other agent's profile with our token
+    const { status } = await api('GET', `/v1/agents/${other.agent_id}`, undefined, {
+      Authorization: `Bearer ${token}`,
+    });
+    expect(status).toBe(403);
   });
 
   it('returns 401 without auth', async () => {
@@ -171,13 +228,6 @@ describe('Agent Lookup', () => {
     expect(status).toBe(403);
   });
 
-  it('returns 404 for nonexistent agent', async () => {
-    const { status } = await api('GET', '/v1/agents/agt_00000000', undefined, {
-      Authorization: `Bearer ${token}`,
-    });
-    expect(status).toBe(404);
-  });
-
   it('returns 400 for invalid agent_id format', async () => {
     const { status } = await api('GET', '/v1/agents/bad_id', undefined, {
       Authorization: `Bearer ${token}`,
@@ -186,12 +236,97 @@ describe('Agent Lookup', () => {
   });
 });
 
+describe('Agent Revocation', () => {
+  it('agent can revoke itself', async () => {
+    const { json: reg } = await registerAgent({
+      agent_name: 'self-revoke-agent',
+      creator_identity: 'revoke@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion'],
+      prohibited: [],
+    });
+
+    const { status, json } = await api('POST', `/v1/agents/${reg.agent_id}/revoke`, undefined, {
+      Authorization: `Bearer ${reg.token}`,
+    });
+
+    expect(status).toBe(200);
+    expect(json.agent_id).toBe(reg.agent_id);
+    expect(json.revoked_at).toBeDefined();
+
+    // Verify the agent can no longer authenticate
+    const { status: lookupStatus } = await api('GET', `/v1/agents/${reg.agent_id}`, undefined, {
+      Authorization: `Bearer ${reg.token}`,
+    });
+    expect(lookupStatus).toBe(403);
+  });
+
+  it('admin can revoke any agent via registration secret', async () => {
+    const { json: reg } = await registerAgent({
+      agent_name: 'admin-revoke-agent',
+      creator_identity: 'admin@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion'],
+      prohibited: [],
+    });
+
+    const { status, json } = await api('POST', `/v1/agents/${reg.agent_id}/revoke`, undefined, {
+      'X-Registration-Secret': REGISTRATION_SECRET,
+    });
+
+    expect(status).toBe(200);
+    expect(json.revoked_at).toBeDefined();
+  });
+
+  it('returns 409 when revoking already-revoked agent', async () => {
+    const { json: reg } = await registerAgent({
+      agent_name: 'double-revoke-agent',
+      creator_identity: 'double@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion'],
+      prohibited: [],
+    });
+
+    await api('POST', `/v1/agents/${reg.agent_id}/revoke`, undefined, {
+      'X-Registration-Secret': REGISTRATION_SECRET,
+    });
+
+    const { status, json } = await api('POST', `/v1/agents/${reg.agent_id}/revoke`, undefined, {
+      'X-Registration-Secret': REGISTRATION_SECRET,
+    });
+    expect(status).toBe(409);
+    expect(json.error).toContain('already revoked');
+  });
+
+  it('agent cannot revoke a different agent', async () => {
+    const { json: agent1 } = await registerAgent({
+      agent_name: 'agent-one',
+      creator_identity: 'one@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion'],
+      prohibited: [],
+    });
+    const { json: agent2 } = await registerAgent({
+      agent_name: 'agent-two',
+      creator_identity: 'two@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion'],
+      prohibited: [],
+    });
+
+    const { status } = await api('POST', `/v1/agents/${agent2.agent_id}/revoke`, undefined, {
+      Authorization: `Bearer ${agent1.token}`,
+    });
+    expect(status).toBe(403);
+  });
+});
+
 describe('Audit Logs', () => {
   let agentId: string;
   let token: string;
 
   beforeAll(async () => {
-    const { json } = await api('POST', '/v1/agents/register', {
+    const { json } = await registerAgent({
       agent_name: 'log-agent',
       creator_identity: 'log@example.com',
       model_version: 'claude-sonnet-4',
@@ -246,7 +381,6 @@ describe('Audit Logs', () => {
   });
 
   it('GET /v1/agents/:id/logs retrieves log entries', async () => {
-    // Submit another log
     await api(
       'POST',
       '/v1/logs',
@@ -275,7 +409,6 @@ describe('Audit Logs', () => {
     expect(json.limit).toBe(10);
     expect(json.offset).toBe(0);
 
-    // Check log entries
     const blocked = json.logs.find((l: any) => l.status === 'blocked');
     expect(blocked).toBeDefined();
     expect(blocked.action).toBe('write:database');
@@ -283,16 +416,14 @@ describe('Audit Logs', () => {
   });
 
   it('GET /v1/agents/:id/logs rejects wrong token', async () => {
-    // Register a different agent
-    const { json: other } = await api('POST', '/v1/agents/register', {
-      agent_name: 'other-agent',
+    const { json: other } = await registerAgent({
+      agent_name: 'other-log-agent',
       creator_identity: 'other@example.com',
       model_version: 'gpt-4o',
       capabilities: ['read:files'],
       prohibited: [],
     });
 
-    // Try to read log-agent's logs with other-agent's token
     const { status } = await api(
       'GET',
       `/v1/agents/${agentId}/logs`,

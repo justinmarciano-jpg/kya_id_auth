@@ -18,7 +18,12 @@ export async function register(opts: { server?: string }): Promise<void> {
 
   const res = await fetch(`${apiUrl}/v1/agents/register`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(process.env.KYA_REGISTRATION_SECRET
+        ? { 'X-Registration-Secret': process.env.KYA_REGISTRATION_SECRET }
+        : {}),
+    },
     body: JSON.stringify({
       agent_name: manifest.agent_name,
       creator_identity: manifest.creator_identity,

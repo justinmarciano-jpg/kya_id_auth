@@ -9,6 +9,14 @@ export function registerRoutes(app: Express, deps: Deps): void {
 
   app.post('/v1/agents/register', rateLimit(config.rateLimitRegister), async (req, res) => {
     try {
+      if (config.registrationSecret) {
+        const secret = req.headers['x-registration-secret'];
+        if (secret !== config.registrationSecret) {
+          res.status(401).json({ error: 'Invalid or missing registration secret' });
+          return;
+        }
+      }
+
       const errors = validateRegisterBody(req.body);
       if (errors.length > 0) {
         res.status(400).json({ error: 'Validation failed', details: errors });
@@ -18,7 +26,7 @@ export function registerRoutes(app: Express, deps: Deps): void {
       const { agent_name, creator_identity, model_version, capabilities, prohibited, metadata } =
         req.body;
 
-      const agent_id = 'agt_' + randomBytes(4).toString('hex');
+      const agent_id = 'agt_' + randomBytes(16).toString('hex');
       const created_at = new Date().toISOString();
 
       const token = await signAgentToken(

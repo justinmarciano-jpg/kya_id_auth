@@ -4,6 +4,7 @@ import { init } from './commands/init.js';
 import { register } from './commands/register.js';
 import { verify } from './commands/verify.js';
 import { logs } from './commands/logs.js';
+import { revoke } from './commands/revoke.js';
 
 function asyncAction(fn: (...args: any[]) => Promise<void>) {
   return (...args: any[]) => {
@@ -53,5 +54,12 @@ program
   .option('-l, --limit <n>', 'Number of entries to show', '20')
   .option('-s, --server <url>', 'KYA server URL')
   .action(asyncAction(logs));
+
+program
+  .command('revoke')
+  .description('Revoke an agent credential')
+  .option('-a, --agent <id>', 'Agent ID (default: from .kya-credentials)')
+  .option('-s, --server <url>', 'KYA server URL')
+  .action(asyncAction(revoke));
 
 program.parse();

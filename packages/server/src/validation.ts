@@ -1,4 +1,4 @@
-export const AGENT_ID_RE = /^agt_[a-f0-9]{8}$/;
+export const AGENT_ID_RE = /^agt_[a-f0-9]{32}$/;
 export const SHA256_HEX_RE = /^[a-f0-9]{64}$/;
 const VALID_STATUSES = new Set(['success', 'blocked', 'error']);
 
@@ -36,6 +36,8 @@ export function validateRegisterBody(body: unknown): string[] {
 
   if (b.metadata != null && (typeof b.metadata !== 'object' || Array.isArray(b.metadata))) {
     errs.push('metadata must be an object');
+  } else if (b.metadata != null && JSON.stringify(b.metadata).length > 4096) {
+    errs.push('metadata must not exceed 4KB when serialized');
   }
 
   return errs;
