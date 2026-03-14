@@ -10,6 +10,8 @@ export interface RegisterRequest {
   capabilities: string[];
   prohibited: string[];
   metadata?: Record<string, unknown>;
+  /** Optional: for hosted product metering (agents per project). Ignored in OSS. */
+  project_id?: string;
 }
 
 export interface RegisterResponse {
@@ -88,6 +90,7 @@ export interface AgentRow {
   metadata: Record<string, unknown>;
   created_at: Date;
   revoked_at: Date | null;
+  project_id?: string | null;
 }
 
 // ── JWT Types ───────────────────────────────────────────────────────────────
@@ -117,6 +120,9 @@ export interface LogRow {
 
 // ── Server Internals ────────────────────────────────────────────────────────
 
+/** Productization: fire-and-forget event hook for funnel telemetry (e.g. PostHog). No PII by default. */
+export type TelemetryEventHook = (event: string, data?: Record<string, unknown>) => void;
+
 export interface ServerConfig {
   port: number;
   databaseUrl: string;
@@ -128,6 +134,8 @@ export interface ServerConfig {
   allowedOrigins: string[] | null;
   trustProxy: boolean;
   registrationSecret?: string;
+  /** Optional: called on key funnel events (agent_registered, agent_lookup, log_submitted, jwks_fetched). For hosted product analytics. */
+  onEvent?: TelemetryEventHook;
 }
 
 export interface Deps {

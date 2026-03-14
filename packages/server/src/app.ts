@@ -1,5 +1,6 @@
 import express from 'express';
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import type { Server } from 'node:http';
 import { loadConfig } from './config.js';
 import { createPool } from './db.js';
@@ -11,6 +12,7 @@ import { registerRoutes } from './routes/register.js';
 import { agentRoutes } from './routes/agents.js';
 import { logsRoutes } from './routes/logs.js';
 import { jwksRoutes } from './routes/jwks.js';
+import { demoRoutes } from './routes/demo.js';
 import type { ServerConfig, Deps } from './types.js';
 
 export function createApp(overrides: Partial<ServerConfig> = {}) {
@@ -70,6 +72,10 @@ export function createApp(overrides: Partial<ServerConfig> = {}) {
 
   app.use(express.json({ limit: '1mb' }));
 
+  // Demo dashboard (productization: illustrate register → verifier in browser)
+  app.use(express.static(path.join(process.cwd(), 'public')));
+  app.get('/', (_req, res) => res.redirect(302, '/dashboard.html'));
+
   // Deps placeholder — keys loaded async in start()
   const deps: Deps = {
     pool,
@@ -85,6 +91,7 @@ export function createApp(overrides: Partial<ServerConfig> = {}) {
   registerRoutes(app, deps);
   agentRoutes(app, deps);
   logsRoutes(app, deps);
+  demoRoutes(app, deps);
 
   let server: Server | null = null;
 

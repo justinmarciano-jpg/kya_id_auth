@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KYA ID Auth — Demo</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 640px; margin: 0 auto; padding: 1.5rem; color: #1a1a1a; line-height: 1.5; }
+    h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.5rem; }
+    .subtitle { color: #666; font-size: 0.875rem; margin-bottom: 1.5rem; }
+    section { margin-bottom: 2rem; padding: 1rem; background: #f8f9fa; border-radius: 8px; }
+    section h2 { font-size: 1rem; font-weight: 600; margin: 0 0 0.75rem; }
+    label { display: block; font-size: 0.8125rem; font-weight: 500; margin-bottom: 0.25rem; }
+    input, textarea { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #ccc; border-radius: 6px; font-size: 0.875rem; margin-bottom: 0.75rem; }
+    textarea { min-height: 60px; resize: vertical; }
+    button { padding: 0.5rem 1rem; font-size: 0.875rem; font-weight: 500; border: none; border-radius: 6px; cursor: pointer; }
+    button.primary { background: #0d6efd; color: white; }
+    button.primary:hover { background: #0b5ed7; }
+    button.secondary { background: #e9ecef; color: #1a1a1a; }
+    button.secondary:hover { background: #dee2e6; }
+    .result { margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px; font-size: 0.875rem; word-break: break-all; }
+    .result.success { background: #d1e7dd; color: #0f5132; }
+    .result.error { background: #f8d7da; color: #842029; }
+    .result.info { background: #cff4fc; color: #055160; }
+    .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .row input { flex: 1; min-width: 120px; margin-bottom: 0; }
+    .token-display { font-family: ui-monospace, monospace; font-size: 0.75rem; color: #666; }
+    .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+    .badge.allowed { background: #d1e7dd; color: #0f5132; }
+    .badge.denied { background: #f8d7da; color: #842029; }
+  </style>
+</head>
+<body>
+  <h1>KYA ID Auth — Demo</h1>
+  <p class="subtitle">Identity and scoped permissions for AI agents. Register an agent, then try the verifier.</p>
+
+  <section>
+    <h2>1. Register an agent</h2>
+    <label>Registration secret (optional; set if your server requires it)</label>
+    <input type="password" id="secret" placeholder="Leave empty if not required" autocomplete="off" />
+    <label>Agent name</label>
+    <input type="text" id="agentName" value="demo-agent" placeholder="e.g. demo-agent" />
+    <label>Creator identity</label>
+    <input type="text" id="creatorIdentity" value="you@example.com" placeholder="e.g. you@example.com" />
+    <label>Model version</label>
+    <input type="text" id="modelVersion" value="claude-sonnet-4" placeholder="e.g. claude-sonnet-4" />
+    <label>Capabilities (one per line or comma-separated)</label>
+    <textarea id="capabilities" placeholder="read:notion&#10;write:slack">read:notion
+write:slack</textarea>
+    <label>Prohibited (one per line or comma-separated)</label>
+    <textarea id="prohibited" placeholder="write:database">write:database</textarea>
+    <button class="primary" id="registerBtn">Register</button>
+    <div id="registerResult" class="result" style="display:none;"></div>
+  </section>
+
+  <section>
+    <h2>2. Try the verifier</h2>
+    <p style="font-size: 0.875rem; color: #666; margin-bottom: 0.75rem;">Simulates your MCP/tool layer: verify the token and check if an action is allowed.</p>
+    <label>Agent token (from step 1 or paste your own)</label>
+    <input type="password" id="token" placeholder="Paste token after registering" autocomplete="off" />
+    <label>Action to check</label>
+    <div class="row">
+      <input type="text" id="action" placeholder="e.g. read:notion" value="read:notion" />
+      <button class="primary" id="checkBtn">Check</button>
+    </div>
+    <div id="checkResult" class="result" style="display:none;"></div>
+  </section>
+
+  <script>
+    const base = window.location.origin;
+
+    function parseList(el) {
+      const raw = (el.value || '').trim();
+      if (!raw) return [];
+      return raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    }
+
+    document.getElementById('registerBtn').addEventListener('click', async () => {
+      const secret = document.getElementById('secret').value.trim();
+      const body = {
+        agent_name: document.getElementById('agentName').value.trim() || 'demo-agent',
+        creator_identity: document.getElementById('creatorIdentity').value.trim() || 'you@example.com',
+        model_version: document.getElementById('modelVersion').value.trim() || 'claude-sonnet-4',
+        capabilities: parseList(document.getElementById('capabilities')),
+        prohibited: parseList(document.getElementById('prohibited')),
+      };
+      const headers = { 'Content-Type': 'application/json' };
+      if (secret) headers['X-Registration-Secret'] = secret;
+
+      const out = document.getElementById('registerResult');
+      out.style.display = 'none';
+
+      try {
+        const res = await fetch(base + '/v1/agents/register', { method: 'POST', headers, body: JSON.stringify(body) });
+        const data = await res.json();
+        if (!res.ok) {
+          out.className = 'result error';
+          out.textContent = data.error || data.details?.join(', ') || 'Registration failed';
+          out.style.display = 'block';
+          return;
+        }
+        document.getElementById('token').value = data.token;
+        out.className = 'result success';
+        out.innerHTML = 'Agent registered. <span class="token-display">' + data.agent_id + '</span> — token copied to "Try the verifier" below.';
+        out.style.display = 'block';
+      } catch (e) {
+        out.className = 'result error';
+        out.textContent = 'Network error: ' + e.message;
+        out.style.display = 'block';
+      }
+    });
+
+    document.getElementById('checkBtn').addEventListener('click', async () => {
+      const token = document.getElementById('token').value.trim();
+      const action = document.getElementById('action').value.trim();
+      const out = document.getElementById('checkResult');
+      out.style.display = 'none';
+
+      if (!token || !action) {
+        out.className = 'result error';
+        out.textContent = 'Enter token and action.';
+        out.style.display = 'block';
+        return;
+      }
+
+      try {
+        const res = await fetch(base + '/v1/demo/check-action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, action }),
+        });
+        const data = await res.json();
+        if (res.status === 403) {
+          out.className = 'result error';
+          out.innerHTML = '<span class="badge denied">Denied</span> ' + (data.error || 'Invalid or expired token');
+          out.style.display = 'block';
+          return;
+        }
+        if (!res.ok) {
+          out.className = 'result error';
+          out.textContent = data.error || 'Check failed';
+          out.style.display = 'block';
+          return;
+        }
+        if (data.allowed) {
+          out.className = 'result success';
+          out.innerHTML = '<span class="badge allowed">Allowed</span> Agent ' + (data.agent_id || '') + ' can perform “‘ + action + '”.';
+        } else {
+          out.className = 'result error';
+          out.innerHTML = '<span class="badge denied">Denied</span> Result: ' + data.result + ' — agent cannot perform “‘ + action + '”.';
+        }
+        out.style.display = 'block';
+      } catch (e) {
+        out.className = 'result error';
+        out.textContent = 'Network error: ' + e.message;
+        out.style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>

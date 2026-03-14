@@ -30,6 +30,9 @@ CREATE TABLE IF NOT EXISTS logs (
 
 CREATE INDEX IF NOT EXISTS idx_logs_agent_id ON logs(agent_id);
 CREATE INDEX IF NOT EXISTS idx_logs_agent_timestamp ON logs(agent_id, timestamp DESC);
+
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS project_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_agents_project_id ON agents(project_id) WHERE project_id IS NOT NULL;
 `;
 
 export async function migrate(pool: Pool): Promise<void> {

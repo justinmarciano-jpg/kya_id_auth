@@ -2,6 +2,8 @@
 
 Identity and permission system for autonomous AI agents. Like OAuth for AI — agents register, receive signed JWTs containing their capabilities, and platforms verify credentials via standard JWKS without KYA-specific code.
 
+**Relationship to OAuth:** Same idea (tokens with scoped permissions; resource servers verify via public key), but this is not OAuth 2.0 — no authorization-code or refresh flows. You register once and get a signed JWT; verifiers use JWKS to validate the signature and read capabilities.
+
 ## How It Works
 
 1. **Agent registers** with the KYA server and receives a signed JWT
@@ -40,6 +42,8 @@ npm run dev
 # Server runs at http://localhost:3000
 ```
 
+**Demo dashboard:** Open [http://localhost:3000](http://localhost:3000) (or `/dashboard.html`) to register an agent and try the verifier in the browser — the fastest way to see the “Aha!” moment.
+
 ## Testing in practice
 
 To see the full flow (register → verify token → allow/deny an action):
@@ -59,6 +63,14 @@ docker compose -f docker-compose.yml -f examples/docker-compose.test.yml run --r
 Both register an agent, then run a **minimal verifier** (the “MCP/tool layer” you’d build) that fetches JWKS, verifies the JWT, and checks capabilities. You’ll see allowed vs denied for different actions.
 
 See [examples/README.md](examples/README.md) for troubleshooting (`command not found: npm`), manual verifier usage, and SDK usage from the agent side.
+
+### How do I know the permissions actually work?
+
+1. **Tests** — The suite includes an integration test that registers an agent, fetches JWKS, verifies the JWT with `jose` (same as your MCP layer), and asserts allowed vs prohibited vs denied. Another test proves a **tampered** token (payload changed to add capabilities) fails signature verification. Run: `npm test`.
+
+2. **Run the example** — `examples/test-flow.sh` (or the Docker command) registers an agent with fixed capabilities and runs the verifier for several actions; you see allowed/denied in the output.
+
+3. **Tamper test by hand** — Register, take the token, decode the payload (e.g. [jwt.io](https://jwt.io)), change `capabilities`, re-encode (leave signature as-is). Call the verifier: it should fail with a signature error, so forged permissions are rejected.
 
 ## JWT Structure
 

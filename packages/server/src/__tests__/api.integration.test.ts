@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Server } from 'node:http';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { createApp } from '../app.js';
 
 const DATABASE_URL =
@@ -514,5 +515,62 @@ describe('Request ID', () => {
     expect(res.headers.get('X-Request-Id')).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     );
+  });
+});
+
+/** Same allow/deny logic as verifier and SDK — used to prove permissions work end-to-end. */
+function checkAction(
+  payload: { capabilities?: string[]; prohibited?: string[] },
+  actionStr: string,
+): 'allowed' | 'prohibited' | 'denied' {
+  const prohibited = payload.prohibited ?? [];
+  const capabilities = payload.capabilities ?? [];
+  for (const p of prohibited) if (matchPattern(actionStr, p)) return 'prohibited';
+  for (const c of capabilities) if (matchPattern(actionStr, c)) return 'allowed';
+  return 'denied';
+}
+function matchPattern(actionStr: string, pattern: string): boolean {
+  if (pattern === actionStr) return true;
+  if (pattern.endsWith(':*')) return actionStr.startsWith(pattern.slice(0, -1));
+  return false;
+}
+
+describe('Permissions (JWKS verification)', () => {
+  it('verified token allows only declared capabilities and rejects prohibited', async () => {
+    const { json: reg } = await registerAgent({
+      agent_name: 'perms-agent',
+      creator_identity: 'perms@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion', 'write:slack'],
+      prohibited: ['write:database'],
+    });
+
+    const jwksUrl = url('/.well-known/jwks.json');
+    const JWKS = createRemoteJWKSet(new URL(jwksUrl));
+    const { payload } = await jwtVerify(reg.token, JWKS, { algorithms: ['RS256'] });
+
+    expect(checkAction(payload, 'read:notion')).toBe('allowed');
+    expect(checkAction(payload, 'write:slack')).toBe('allowed');
+    expect(checkAction(payload, 'write:database')).toBe('prohibited');
+    expect(checkAction(payload, 'read:email')).toBe('denied');
+  });
+
+  it('tampered token fails verification', async () => {
+    const { json: reg } = await registerAgent({
+      agent_name: 'tamper-agent',
+      creator_identity: 'tamper@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion'],
+      prohibited: [],
+    });
+
+    const [header, payloadB64, sig] = reg.token.split('.');
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
+    payload.capabilities = ['admin:*'];
+    const tampered = [header, Buffer.from(JSON.stringify(payload)).toString('base64url'), sig].join('.');
+
+    const jwksUrl = url('/.well-known/jwks.json');
+    const JWKS = createRemoteJWKSet(new URL(jwksUrl));
+    await expect(jwtVerify(tampered, JWKS, { algorithms: ['RS256'] })).rejects.toThrow();
   });
 });

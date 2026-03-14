@@ -26,6 +26,8 @@ export function agentRoutes(app: Express, deps: Deps): void {
         return;
       }
 
+      config.onEvent?.('agent_lookup', { agent_id: auth.agent.agent_id });
+
       res.json({
         agent_id: auth.agent.agent_id,
         agent_name: auth.agent.agent_name,

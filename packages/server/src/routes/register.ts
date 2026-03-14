@@ -23,7 +23,7 @@ export function registerRoutes(app: Express, deps: Deps): void {
         return;
       }
 
-      const { agent_name, creator_identity, model_version, capabilities, prohibited, metadata } =
+      const { agent_name, creator_identity, model_version, capabilities, prohibited, metadata, project_id } =
         req.body;
 
       const agent_id = 'agt_' + randomBytes(16).toString('hex');
@@ -43,11 +43,12 @@ export function registerRoutes(app: Express, deps: Deps): void {
         issuer,
       );
 
+      const projectId = typeof project_id === 'string' && project_id.length > 0 ? project_id : null;
       await pool.query(
         `INSERT INTO agents
           (agent_id, agent_name, creator_identity, model_version,
-           capabilities, prohibited, token, metadata, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+           capabilities, prohibited, token, metadata, created_at, project_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [
           agent_id,
           agent_name,
@@ -58,8 +59,11 @@ export function registerRoutes(app: Express, deps: Deps): void {
           token,
           JSON.stringify(metadata ?? {}),
           created_at,
+          projectId,
         ],
       );
+
+      config.onEvent?.('agent_registered', { agent_id, project_id: projectId ?? undefined });
 
       res.status(201).json({ agent_id, token, agent_name, created_at });
     } catch (err) {

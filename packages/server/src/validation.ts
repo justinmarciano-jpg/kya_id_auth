@@ -63,6 +63,11 @@ export function validateRegisterBody(body: unknown): string[] {
     errs.push('metadata must not exceed 4KB when serialized');
   }
 
+  if (b.project_id != null) {
+    const e = requireString(b.project_id, 'project_id', { min: 0, max: 200 });
+    if (e && !e.includes('required')) errs.push(e);
+  }
+
   return errs;
 }
 

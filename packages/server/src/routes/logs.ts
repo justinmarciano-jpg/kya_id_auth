@@ -33,6 +33,8 @@ export function logsRoutes(app: Express, deps: Deps): void {
         [auth.agent.agent_id, action, timestamp, input_hash, output_hash, within_scope, status],
       );
 
+      config.onEvent?.('log_submitted', { agent_id: auth.agent.agent_id });
+
       res.status(201).json({ success: true, log_id: Number(result.rows[0].id) });
     } catch (err) {
       const requestId = (res.locals as { requestId?: string }).requestId;
