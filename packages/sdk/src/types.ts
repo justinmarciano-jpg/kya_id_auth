@@ -1,3 +1,17 @@
+/** Decoded JWT payload from KYA agent registration (local decode only; verify with JWKS for untrusted tokens). */
+export interface DecodedKyaToken {
+  sub?: string;
+  iss?: string;
+  iat?: number;
+  exp?: number;
+  agent_name?: string;
+  creator_identity?: string;
+  model_version?: string;
+  capabilities?: string[];
+  prohibited?: string[];
+  metadata?: Record<string, unknown>;
+}
+
 export interface KYAClientConfig {
   /** Signed JWT from agent registration */
   token: string;

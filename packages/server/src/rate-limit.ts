@@ -33,7 +33,11 @@ export function createRateLimiter(windowMs: number) {
       res.setHeader('X-RateLimit-Remaining', String(Math.max(0, max - entry.count)));
 
       if (entry.count > max) {
-        res.status(429).json({ error: 'Too many requests. Try again later.' });
+        const retryAfterSec = Math.ceil((entry.windowStart + windowMs - now) / 1000);
+        if (retryAfterSec > 0) res.setHeader('Retry-After', String(retryAfterSec));
+        const body: { error: string; request_id?: string } = { error: 'Too many requests. Try again later.' };
+        if ((res.locals as { requestId?: string }).requestId) body.request_id = (res.locals as { requestId?: string }).requestId;
+        res.status(429).json(body);
         return;
       }
       next();

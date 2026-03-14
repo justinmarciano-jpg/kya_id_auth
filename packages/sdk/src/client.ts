@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import { decodeJwt } from 'jose';
-import type { KYAClientConfig, ExecuteResult, AgentInfo, LogsListResponse } from './types.js';
+import type {
+  KYAClientConfig,
+  ExecuteResult,
+  AgentInfo,
+  LogsListResponse,
+  DecodedKyaToken,
+} from './types.js';
 
 export class KYABlockedError extends Error {
   public readonly action: string;
@@ -50,11 +56,11 @@ export class KYAClient {
     this.maxRetries = config.retries ?? 2;
     this.retryDelayMs = config.retryDelayMs ?? 1000;
 
-    // Decode JWT locally to extract agent identity and permissions
-    const payload = decodeJwt(this.token);
+    // Decode JWT locally to extract agent identity and permissions (no signature verify here)
+    const payload = decodeJwt(this.token) as DecodedKyaToken;
     this.agentId = payload.sub ?? '';
-    this.capabilities = (payload as any).capabilities ?? [];
-    this.prohibited = (payload as any).prohibited ?? [];
+    this.capabilities = Array.isArray(payload.capabilities) ? payload.capabilities : [];
+    this.prohibited = Array.isArray(payload.prohibited) ? payload.prohibited : [];
 
     if (this.logToServer) {
       this.flushTimer = setInterval(() => this.flush(), 30_000);
@@ -106,8 +112,8 @@ export class KYAClient {
       headers: { Authorization: `Bearer ${this.token}` },
     });
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(`Verification failed (${res.status}): ${(body as any).error || 'Unknown'}`);
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(`Verification failed (${res.status}): ${body.error ?? 'Unknown'}`);
     }
     return res.json() as Promise<AgentInfo>;
   }
@@ -124,8 +130,8 @@ export class KYAClient {
       { headers: { Authorization: `Bearer ${this.token}` } },
     );
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(`Failed to fetch logs (${res.status}): ${(body as any).error || 'Unknown'}`);
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(`Failed to fetch logs (${res.status}): ${body.error ?? 'Unknown'}`);
     }
     return res.json() as Promise<LogsListResponse>;
   }

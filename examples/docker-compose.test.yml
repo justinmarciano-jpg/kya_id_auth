@@ -1,0 +1,17 @@
+# Run the test flow with only Docker (no npm/node on host).
+# From repo root:
+#   docker compose up -d
+#   docker compose -f docker-compose.yml -f examples/docker-compose.test.yml run --rm test-flow
+services:
+  test-flow:
+    image: node:20-alpine
+    working_dir: /app/examples
+    volumes:
+      - ..:/app
+    environment:
+      KYA_SERVER_URL: http://server:3000
+      KYA_REGISTRATION_SECRET: ""
+    command: sh -c "npm install && bash test-flow.sh"
+    depends_on:
+      server:
+        condition: service_started

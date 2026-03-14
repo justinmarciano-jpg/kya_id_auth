@@ -168,6 +168,54 @@ describe('Registration', () => {
     expect(status).toBe(400);
     expect(json.details.length).toBeGreaterThan(0);
   });
+
+  it('rejects capabilities with non-string element', async () => {
+    const { status, json } = await registerAgent({
+      agent_name: 'cap-nonstring',
+      creator_identity: 'test@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion', 123],
+      prohibited: [],
+    });
+    expect(status).toBe(400);
+    expect(json.details.some((d: string) => d.includes('capabilities') && d.includes('string'))).toBe(true);
+  });
+
+  it('rejects capabilities with empty string element', async () => {
+    const { status, json } = await registerAgent({
+      agent_name: 'cap-empty',
+      creator_identity: 'test@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion', ''],
+      prohibited: [],
+    });
+    expect(status).toBe(400);
+    expect(json.details.some((d: string) => d.includes('capabilities') && d.includes('empty'))).toBe(true);
+  });
+
+  it('rejects capabilities exceeding max items', async () => {
+    const { status, json } = await registerAgent({
+      agent_name: 'cap-many',
+      creator_identity: 'test@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: Array.from({ length: 201 }, (_, i) => `cap:${i}`),
+      prohibited: [],
+    });
+    expect(status).toBe(400);
+    expect(json.details.some((d: string) => d.includes('capabilities') && d.includes('200'))).toBe(true);
+  });
+
+  it('rejects prohibited with non-string element', async () => {
+    const { status, json } = await registerAgent({
+      agent_name: 'prohib-nonstring',
+      creator_identity: 'test@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion'],
+      prohibited: ['write:db', {}],
+    });
+    expect(status).toBe(400);
+    expect(json.details.some((d: string) => d.includes('prohibited') && d.includes('string'))).toBe(true);
+  });
 });
 
 describe('Agent Lookup', () => {
@@ -409,7 +457,7 @@ describe('Audit Logs', () => {
     expect(json.limit).toBe(10);
     expect(json.offset).toBe(0);
 
-    const blocked = json.logs.find((l: any) => l.status === 'blocked');
+    const blocked = json.logs.find((l: { status: string }) => l.status === 'blocked');
     expect(blocked).toBeDefined();
     expect(blocked.action).toBe('write:database');
     expect(blocked.within_scope).toBe(false);
@@ -431,5 +479,40 @@ describe('Audit Logs', () => {
       { Authorization: `Bearer ${other.token}` },
     );
     expect(status).toBe(403);
+  });
+});
+
+describe('Rate limiting', () => {
+  it('returns 429 with Retry-After and request_id when exceeding limit', async () => {
+    const { json: reg } = await registerAgent({
+      agent_name: 'rate-limit-agent',
+      creator_identity: 'ratelimit@example.com',
+      model_version: 'claude-sonnet-4',
+      capabilities: ['read:notion'],
+      prohibited: [],
+    });
+    const authHeader = { Authorization: `Bearer ${reg.token}` };
+    const limit = 60; // rateLimitGeneral default
+    for (let i = 0; i < limit; i++) {
+      await api('GET', `/v1/agents/${reg.agent_id}`, undefined, authHeader);
+    }
+    const res = await fetch(url(`/v1/agents/${reg.agent_id}`), {
+      headers: { ...authHeader, 'Content-Type': 'application/json' },
+    });
+    const json = await res.json();
+    expect(res.status).toBe(429);
+    expect(json.error).toContain('Too many requests');
+    expect(res.headers.get('Retry-After')).toBeTruthy();
+    expect(json.request_id).toBeDefined();
+  });
+});
+
+describe('Request ID', () => {
+  it('includes X-Request-Id on success response', async () => {
+    const res = await fetch(url('/healthz'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Request-Id')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
   });
 });

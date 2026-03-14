@@ -9,6 +9,25 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kya -d kya_id_auth"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  server:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://kya:kya_dev@postgres:5432/kya_id_auth
+      KYA_ISSUER: https://kya.dev
+      KYA_RATE_REGISTER: 10
+      KYA_RATE_GENERAL: 60
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pgdata:

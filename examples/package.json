@@ -1,0 +1,9 @@
+{
+  "name": "kya-id-auth-examples",
+  "private": true,
+  "type": "module",
+  "description": "Runnable examples: verifier (simulated MCP/tool layer) and test flow",
+  "dependencies": {
+    "jose": "^6.2.1"
+  }
+}

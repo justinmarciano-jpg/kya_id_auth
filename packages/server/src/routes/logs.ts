@@ -35,8 +35,9 @@ export function logsRoutes(app: Express, deps: Deps): void {
 
       res.status(201).json({ success: true, log_id: Number(result.rows[0].id) });
     } catch (err) {
-      console.error('Log error:', err);
-      res.status(500).json({ error: 'Failed to store log' });
+      const requestId = (res.locals as { requestId?: string }).requestId;
+      console.error('[Log error]', { requestId, err });
+      res.status(500).json({ error: 'Failed to store log', ...(requestId && { request_id: requestId }) });
     }
   });
 
@@ -95,8 +96,9 @@ export function logsRoutes(app: Express, deps: Deps): void {
         offset,
       });
     } catch (err) {
-      console.error('Logs fetch error:', err);
-      res.status(500).json({ error: 'Failed to fetch logs' });
+      const requestId = (res.locals as { requestId?: string }).requestId;
+      console.error('[Logs fetch error]', { requestId, err });
+      res.status(500).json({ error: 'Failed to fetch logs', ...(requestId && { request_id: requestId }) });
     }
   });
 }

@@ -63,8 +63,9 @@ export function registerRoutes(app: Express, deps: Deps): void {
 
       res.status(201).json({ agent_id, token, agent_name, created_at });
     } catch (err) {
-      console.error('Register error:', err);
-      res.status(500).json({ error: 'Registration failed' });
+      const requestId = (res.locals as { requestId?: string }).requestId;
+      console.error('[Register error]', { requestId, err });
+      res.status(500).json({ error: 'Registration failed', ...(requestId && { request_id: requestId }) });
     }
   });
 }

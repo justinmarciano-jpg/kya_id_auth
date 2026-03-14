@@ -5,4 +5,5 @@ export type {
   AgentInfo,
   LogEntry,
   LogsListResponse,
+  DecodedKyaToken,
 } from './types.js';

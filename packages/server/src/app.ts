@@ -1,4 +1,5 @@
 import express from 'express';
+import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { loadConfig } from './config.js';
 import { createPool } from './db.js';
@@ -22,6 +23,14 @@ export function createApp(overrides: Partial<ServerConfig> = {}) {
   if (config.trustProxy) {
     app.set('trust proxy', true);
   }
+
+  // Request ID for tracing and error correlation
+  app.use((_req, res, next) => {
+    const requestId = randomUUID();
+    res.locals.requestId = requestId;
+    res.setHeader('X-Request-Id', requestId);
+    next();
+  });
 
   // Security headers
   app.use((_req, res, next) => {

@@ -19,6 +19,29 @@ function requireArray(val: unknown, name: string): string | null {
   return null;
 }
 
+const MAX_CAPABILITY_ITEMS = 200;
+const MAX_CAPABILITY_ITEM_LENGTH = 200;
+
+/** Validate capabilities/prohibited: array of non-empty strings, bounded length and count. */
+function requireStringArray(
+  val: unknown,
+  name: string,
+  opts: { maxItems?: number; maxItemLength?: number } = {},
+): string | null {
+  const err = requireArray(val, name);
+  if (err) return err;
+  const arr = val as unknown[];
+  const { maxItems = MAX_CAPABILITY_ITEMS, maxItemLength = MAX_CAPABILITY_ITEM_LENGTH } = opts;
+  if (arr.length > maxItems) return `${name} must have at most ${maxItems} items`;
+  for (let i = 0; i < arr.length; i++) {
+    if (typeof arr[i] !== 'string') return `${name}[${i}] must be a string`;
+    const s = arr[i] as string;
+    if (s.length === 0) return `${name}[${i}] must not be empty`;
+    if (s.length > maxItemLength) return `${name}[${i}] must be at most ${maxItemLength} characters`;
+  }
+  return null;
+}
+
 export function validateRegisterBody(body: unknown): string[] {
   if (!body || typeof body !== 'object') return ['Request body is required'];
 
@@ -31,8 +54,8 @@ export function validateRegisterBody(body: unknown): string[] {
   push(requireString(b.agent_name, 'agent_name', { max: 200 }));
   push(requireString(b.creator_identity, 'creator_identity', { max: 500 }));
   push(requireString(b.model_version, 'model_version', { max: 200 }));
-  push(requireArray(b.capabilities, 'capabilities'));
-  push(requireArray(b.prohibited, 'prohibited'));
+  push(requireStringArray(b.capabilities, 'capabilities'));
+  push(requireStringArray(b.prohibited, 'prohibited'));
 
   if (b.metadata != null && (typeof b.metadata !== 'object' || Array.isArray(b.metadata))) {
     errs.push('metadata must be an object');

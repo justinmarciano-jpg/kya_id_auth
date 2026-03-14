@@ -38,8 +38,9 @@ export function agentRoutes(app: Express, deps: Deps): void {
         revoked_at: auth.agent.revoked_at,
       });
     } catch (err) {
-      console.error('Agent lookup error:', err);
-      res.status(500).json({ error: 'Agent lookup failed' });
+      const requestId = (res.locals as { requestId?: string }).requestId;
+      console.error('[Agent lookup error]', { requestId, err });
+      res.status(500).json({ error: 'Agent lookup failed', ...(requestId && { request_id: requestId }) });
     }
   });
 
@@ -90,8 +91,9 @@ export function agentRoutes(app: Express, deps: Deps): void {
         revoked_at: agent.revoked_at,
       });
     } catch (err) {
-      console.error('Agent revoke error:', err);
-      res.status(500).json({ error: 'Failed to revoke agent' });
+      const requestId = (res.locals as { requestId?: string }).requestId;
+      console.error('[Agent revoke error]', { requestId, err });
+      res.status(500).json({ error: 'Failed to revoke agent', ...(requestId && { request_id: requestId }) });
     }
   });
 }
