@@ -19,10 +19,10 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
 
     steps:
       - uses: actions/checkout@v4
@@ -36,9 +36,26 @@ jobs:
 
       - run: npm run build
 
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            if node -e "
+              const pg = require('pg');
+              const c = new pg.Client({ connectionString: 'postgres://postgres:postgres@127.0.0.1:5432/postgres' });
+              c.connect().then(() => c.end()).then(() => process.exit(0)).catch(() => process.exit(1));
+            "; then
+              echo "Postgres ready"
+              exit 0
+            fi
+            echo "Waiting for Postgres ($i/30)..."
+            sleep 2
+          done
+          echo "Postgres did not become ready"
+          exit 1
+
       - name: Run tests
         env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
-          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+          DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
           KYA_REGISTRATION_SECRET: ci-secret
-        run: npm test
+        run: npm test -- --reporter=verbose
